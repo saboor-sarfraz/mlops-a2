@@ -1,4 +1,4 @@
 [core]
     remote = localremote
 ['remote "localremote"']
-    url = '../DVC Remote"'
+    url = S:\A2\DVC Remote
