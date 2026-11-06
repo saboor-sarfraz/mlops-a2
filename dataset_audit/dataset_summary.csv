@@ -1,0 +1,4 @@
+﻿class,width_min,width_median,width_max,width_valid_count,height_min,height_median,height_max,height_valid_count,file_size_bytes_min,file_size_bytes_median,file_size_bytes_max,file_size_bytes_valid_count
+RealArt,183,940,8495,435,158,720,7091,435,11311,144982,10195352,435
+AiArtData,225,1024,6000,539,135,800,4001,539,11738,199760,5626183,539
+OVERALL,183,1024.0,8495,974,135,768.0,7091,974,11311,169249.5,10195352,974

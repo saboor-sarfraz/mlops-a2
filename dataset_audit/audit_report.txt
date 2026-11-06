@@ -1,0 +1,21 @@
+DATASET AUDIT REPORT
+Dataset root: S:\MLOps\A2\archive
+Classes scanned: RealArt, AiArtData
+Total image files discovered: 974
+Corrupt/unreadable image files: 0
+Files with hash/read errors: 0
+Exact duplicate hash groups: 1
+Files in duplicate groups (includes first copy): 2
+Extra duplicate copies beyond one per group: 1
+
+Files created:
+  image_audit.csv
+  class_counts.csv
+  dataset_summary.csv
+  duplicate_files.csv
+  audit_report.txt
+
+Notes:
+- Counts include all discovered files with recognized image extensions, including corrupt files.
+- Dimension/file-size summaries include only images successfully decoded by Pillow.
+- SHA-256 duplicates are byte-for-byte identical files; visually identical images re-encoded differently will not match.

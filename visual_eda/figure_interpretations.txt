@@ -1,0 +1,16 @@
+VISUAL EDA: FIGURE CAPTIONS AND INTERPRETATIONS
+
+1. Figure 1 — Sample images by class: The grid displays randomly selected readable images from each class to allow a visual check of image content, variety, and obvious quality issues. Use it to describe visible patterns only; do not claim that the classes are separable from appearance alone.
+2. Figure 2 — Width distribution by class: The histograms show how width values are distributed within each class, making spread, skew, and potential outliers easier to inspect. Width is measured in pixels. Compare the two panels to see whether the classes differ in this property; the plot alone does not establish why any difference exists.
+3. Figure 3 — Height distribution by class: The histograms show how height values are distributed within each class, making spread, skew, and potential outliers easier to inspect. Height is measured in pixels. Compare the two panels to see whether the classes differ in this property; the plot alone does not establish why any difference exists.
+4. Figure 4 — File size distribution by class: The histograms show how file size values are distributed within each class, making spread, skew, and potential outliers easier to inspect. File size is shown in kilobytes (KB) for readability. Compare the two panels to see whether the classes differ in this property; the plot alone does not establish why any difference exists.
+
+Method note: Only images successfully opened and decoded by Pillow are included in the visual grid and histograms. Sample images are selected randomly using a fixed seed (42 by default) for reproducibility.
+Dataset root: S:\MLOps\A2\archive
+Classes: RealArt, AiArtData
+
+Figures saved:
+  figure_1_sample_images.png
+  figure_2_width_histograms.png
+  figure_3_height_histograms.png
+  figure_4_size_histograms.png
