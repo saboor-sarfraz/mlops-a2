@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Prediction history | VisionGuard{% endblock %}
+{% block content %}
+<section class="card history-card">
+  <p class="eyebrow">Saved metadata only</p>
+  <h1>Prediction history</h1>
+  <p class="intro">Uploaded image files are not retained. The permanent SQLite trail stores {{ total }} prediction records with time, verdict, confidence, AI score, and model identity.</p>
+  {% if predictions %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time (UTC)</th><th>Filename</th><th>Verdict</th><th>Confidence</th><th>AI probability</th><th>Model</th><th></th></tr></thead>
+      <tbody>
+      {% for item in predictions %}
+        <tr>
+          <td>{{ item.created_at }}</td>
+          <td>{{ item.filename }}</td>
+          <td>{{ item.label }}</td>
+          <td>{{ "%.1f"|format(item.confidence * 100) }}%</td>
+          <td>{{ "%.1f"|format(item.ai_probability * 100) }}%</td>
+          <td>{{ item.model_name or "Unknown (older record)" }}</td>
+          <td><a href="{{ url_for('result_page', prediction_id=item.id) }}">View</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_count > 1 %}
+  <div class="pagination" aria-label="History pages">
+    {% if page > 1 %}<a href="{{ url_for('history_page', page=page - 1) }}">Previous</a>{% endif %}
+    <span>Page {{ page }} of {{ page_count }}</span>
+    {% if page < page_count %}<a href="{{ url_for('history_page', page=page + 1) }}">Next</a>{% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <p>No predictions yet. <a href="{{ url_for('upload_page') }}">Upload an image</a> to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}

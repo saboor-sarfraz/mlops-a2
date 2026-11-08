@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Prediction | VisionGuard{% endblock %}
+{% block content %}
+<section class="card result-card">
+  <p class="eyebrow">Prediction result</p>
+  <h1 class="{% if result.label == 'AI-generated' %}label-ai{% else %}label-real{% endif %}">{{ result.label }}</h1>
+  <p class="filename">File: <strong>{{ result.filename }}</strong></p>
+  <p class="filename">Model: <strong>{{ result.model_name or "Unknown (older record)" }}</strong></p>
+  <div class="score-grid">
+    <div><span class="score">{{ "%.1f"|format(result.confidence * 100) }}%</span><span class="score-caption">confidence in this label</span></div>
+    <div><span class="score">{{ "%.1f"|format(result.ai_probability * 100) }}%</span><span class="score-caption">AI model score</span></div>
+  </div>
+  <p class="hint">Decision threshold: {{ "%.4f"|format(threshold) }} AI probability</p>
+  <aside class="notice">
+    <strong>Interpret with care</strong>
+    <p>A confidence score is not a guarantee. The model may misclassify images outside the styles and sources represented in its training data.</p>
+  </aside>
+  <a class="button-link" href="{{ url_for('upload_page') }}">Analyze another image</a>
+</section>
+{% endblock %}

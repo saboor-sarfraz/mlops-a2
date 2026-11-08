@@ -1,2 +1,22 @@
 /archive
 /DVC Remote
+/.env
+/.env.*
+!.env.example
+/mlflow_local.db
+/mlflow_local.db-shm
+/mlflow_local.db-wal
+/mlflow_local.db-journal
+/mlflow.db
+/mlflow.db-shm
+/mlflow.db-wal
+/mlartifacts
+/mlruns
+__pycache__/
+*.py[cod]
+/~$*.docx
+/visionguard_outputs/prediction_history.db
+/visionguard_outputs/prediction_history.db-shm
+/visionguard_outputs/prediction_history.db-wal
+/visionguard_outputs/*
+!/visionguard_outputs/visionguard_comparison_champion.keras

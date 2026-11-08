@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Upload an image | VisionGuard{% endblock %}
+{% block content %}
+<section class="card">
+  <p class="eyebrow">AI-generated or real artwork?</p>
+  <h1>Check an image</h1>
+  <p class="intro">Upload one image to receive VisionGuard's prediction and score.</p>
+  <form action="{{ url_for('predict_image') }}" method="post" enctype="multipart/form-data">
+    <label class="file-label" for="image">Choose an image</label>
+    <input id="image" name="image" type="file" accept=".jpg,.jpeg,.png,.bmp,.gif" required>
+    <p class="hint">JPG, PNG, BMP or GIF · maximum {{ "%.0f"|format(max_upload_mb) }} MB</p>
+    <button type="submit">Analyze image</button>
+  </form>
+</section>
+<aside class="notice">
+  <strong>Important caveat</strong>
+  <p>This model can make mistakes, especially on unfamiliar styles, edits, or image sources. Its output is a probabilistic estimate, not proof of authenticity.</p>
+</aside>
+{% endblock %}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}VisionGuard{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="{{ url_for('upload_page') }}">VisionGuard</a>
+    <nav aria-label="Main navigation">
+      <a href="{{ url_for('upload_page') }}">Upload</a>
+      <a href="{{ url_for('history_page') }}">History</a>
+      <a href="{{ url_for('health_check') }}">Health</a>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="site-footer">AI-art screening is an estimate, not proof of image origin.</footer>
+</body>
+</html>

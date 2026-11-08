@@ -1,0 +1,25 @@
+.git
+.github
+.dvc
+.env
+.env.*
+archive
+DVC Remote
+mlruns
+mlartifacts
+*.db
+*.db-shm
+*.db-wal
+__pycache__
+*.py[cod]
+tests
+*.docx
+*.pdf
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+visionguard_outputs/*
+!visionguard_outputs/visionguard_comparison_champion.keras

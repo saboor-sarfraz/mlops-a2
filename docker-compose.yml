@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-visionguard}
+      POSTGRES_USER: ${POSTGRES_USER:-visionguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - prediction-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      MODEL_PATH: /app/models/visionguard_comparison_champion.keras
+      MODEL_NAME: VisionGuard MobileNetV2 champion
+      THRESHOLD: ${THRESHOLD:-0.8569827079772949}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-8388608}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-visionguard}
+      DB_USER: ${POSTGRES_USER:-visionguard}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      HOST: 0.0.0.0
+      PORT: 5000
+    ports:
+      - "127.0.0.1:${APP_PORT:-5001}:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  prediction-data:
