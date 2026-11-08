@@ -33,6 +33,33 @@ docker compose down
 
 Postgres credentials are supplied through the ignored `.env` file, not embedded in the Dockerfile, image, workflow, or source. GitHub Actions secrets, when needed for a future registry push or deployment, belong in repository Settings → Secrets and variables → Actions and should be accessed through `${{ secrets.NAME }}`.
 
+## Optional public model API on Google Cloud Run
+
+The Cloud Run service is a separate, authenticated inference API; the browser Flask app remains local. The API returns JSON from `POST /api/v1/predict`, accepting a multipart file field named `image`. The local Flask app reads `MODEL_API_URL` and `MODEL_API_KEY` from the ignored local `.env`, forwards image bytes over HTTPS, and saves the returned decision and threshold to SQLite history.
+
+The deployed endpoint URL and model API key have been configured in the ignored `.env` for this workspace. To use the browser frontend from PowerShell in `S:\A2`, run:
+
+```powershell
+.\run_flask.ps1
+```
+
+Open `http://127.0.0.1:5000`, submit images through the form, and choose **History** to see saved predictions. Keep the terminal open while using the app and press `Ctrl+C` to stop it. Do not copy or share the `.env` file.
+
+To reproduce deployment after installing the Google Cloud CLI, authenticating, selecting a project with billing enabled, and reviewing current Cloud Run/Cloud Build/Artifact Registry/Secret Manager prices, run:
+
+```powershell
+gcloud auth login
+.\deploy_cloudrun.ps1 -ProjectId YOUR_PROJECT_ID -Region us-central1
+```
+
+The script builds `Dockerfile.cloudrun` with Cloud Build, pushes the image to Artifact Registry, creates a Secret Manager API key, grants the Cloud Run identity access to it, and deploys with zero minimum instances and a maximum of two. It prints the actual service and prediction URLs, but not the key. Run `.\run_flask.ps1` again to make local browser predictions use the remote model. To stop ongoing service compute charges after collecting evidence:
+
+```powershell
+gcloud run services delete visionguard-model-api --region YOUR_REGION
+```
+
+Artifact Registry and Secret Manager resources are separate; review and remove them only after preserving report evidence. The report builder leaves the actual deployed URL and Postman result as placeholders until a real deployment/test is completed.
+
 ## GitHub Actions toy exercise
 
 `toy-ci/` is a small copyable exercise. Copy its contents (including `.github/workflows/ci.yml`) into a throwaway GitHub repository, push to run the Python 3.10/3.12 matrix, temporarily change the expected result in `test_math.py` to see a red run, then restore `5` and push again for green. The live VisionGuard workflow runs lint, unit tests on Python 3.11 and 3.12, then builds the Docker image.

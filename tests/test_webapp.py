@@ -8,6 +8,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -41,6 +42,8 @@ class VisionGuardWebAppTests(unittest.TestCase):
         os.environ["MODEL_NAME"] = "VisionGuard test champion"
         os.environ["DATABASE_URL"] = f"sqlite:///{(self.root / 'history.db').as_posix()}"
         os.environ["MAX_UPLOAD_BYTES"] = "8388608"
+        os.environ["MODEL_API_URL"] = ""
+        os.environ["MODEL_API_KEY"] = ""
         self.app = create_app({"TESTING": True, "VISIONGUARD_MODEL": FakeModel()})
         self.client = self.app.test_client()
 
@@ -52,6 +55,8 @@ class VisionGuardWebAppTests(unittest.TestCase):
             "MODEL_NAME",
             "DATABASE_URL",
             "MAX_UPLOAD_BYTES",
+            "MODEL_API_URL",
+            "MODEL_API_KEY",
         ):
             os.environ.pop(key, None)
 
@@ -61,6 +66,23 @@ class VisionGuardWebAppTests(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["status"], "healthy")
+
+    def test_remote_mode_does_not_require_a_local_model_path(self):
+        os.environ.pop("MODEL_PATH")
+        os.environ["MODEL_API_URL"] = "https://visionguard-api.example.run.app"
+        os.environ["MODEL_API_KEY"] = "test-cloud-run-key"
+        self.app = create_app({"TESTING": True})
+        self.assertIsNone(self.app.extensions["visionguard_model"])
+        self.assertEqual(
+            self.app.config["VISIONGUARD_REMOTE_MODEL_API_URL"],
+            "https://visionguard-api.example.run.app",
+        )
+
+    def test_remote_mode_rejects_plain_http_url(self):
+        os.environ["MODEL_API_URL"] = "http://visionguard-api.example.run.app"
+        os.environ["MODEL_API_KEY"] = "test-cloud-run-key"
+        with self.assertRaisesRegex(RuntimeError, "must be an HTTPS URL"):
+            create_app({"TESTING": True})
 
     def test_successful_prediction_and_metadata_only_history(self):
         response = self.client.post(
@@ -80,7 +102,8 @@ class VisionGuardWebAppTests(unittest.TestCase):
         with closing(sqlite3.connect(self.root / "history.db")) as connection:
             row = connection.execute(
                 """
-                SELECT created_at, filename, label, confidence, ai_probability, model_name
+                SELECT created_at, filename, label, confidence, ai_probability,
+                       model_name, threshold
                 FROM predictions
                 """
             ).fetchone()
@@ -91,11 +114,78 @@ class VisionGuardWebAppTests(unittest.TestCase):
             0.9,
             0.9,
             "VisionGuard test champion",
+            0.85,
         ))
         self.assertEqual(
             sorted(path.name for path in self.root.iterdir()),
             ["dummy.keras", "history.db"],
         )
+
+    @patch("webapp.requests.post")
+    def test_local_flask_forwards_image_to_remote_model_and_saves_result(self, post):
+        os.environ["MODEL_API_URL"] = "https://visionguard-api.example.run.app"
+        os.environ["MODEL_API_KEY"] = "test-cloud-run-key"
+        response_from_model = Mock()
+        response_from_model.json.return_value = {
+            "label": "Real",
+            "confidence": 0.91,
+            "ai_probability": 0.09,
+            "model_name": "VisionGuard Cloud Run model",
+            "threshold": 0.83,
+        }
+        post.return_value = response_from_model
+        self.app = create_app({"TESTING": True})
+        self.client = self.app.test_client()
+
+        response = self.client.post(
+            "/predict",
+            data={"image": (BytesIO(PNG_BYTES), "sample.png")},
+            content_type="multipart/form-data",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        post.assert_called_once()
+        request_url = post.call_args.args[0]
+        request_args = post.call_args.kwargs
+        self.assertEqual(
+            request_url,
+            "https://visionguard-api.example.run.app/api/v1/predict",
+        )
+        self.assertEqual(
+            request_args["headers"]["Authorization"], "Bearer test-cloud-run-key"
+        )
+        self.assertEqual(request_args["timeout"], (5, 120))
+        with closing(sqlite3.connect(self.root / "history.db")) as connection:
+            row = connection.execute(
+                "SELECT label, confidence, ai_probability, model_name FROM predictions"
+            ).fetchone()
+        self.assertEqual(
+            row, ("Real", 0.91, 0.09, "VisionGuard Cloud Run model")
+        )
+        result_page = self.client.get(response.headers["Location"])
+        self.assertIn(b"0.8300", result_page.data)
+        with closing(sqlite3.connect(self.root / "history.db")) as connection:
+            threshold = connection.execute(
+                "SELECT threshold FROM predictions"
+            ).fetchone()[0]
+        self.assertEqual(threshold, 0.83)
+
+    @patch("webapp.requests.post")
+    def test_remote_prediction_failure_returns_bad_gateway(self, post):
+        import requests
+
+        os.environ["MODEL_API_URL"] = "https://visionguard-api.example.run.app"
+        os.environ["MODEL_API_KEY"] = "test-cloud-run-key"
+        post.side_effect = requests.Timeout("Cloud model timed out")
+        self.app = create_app({"TESTING": True})
+        self.client = self.app.test_client()
+        response = self.client.post(
+            "/predict",
+            data={"image": (BytesIO(PNG_BYTES), "sample.png")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 502)
+        self.assertIn(b"Model service unavailable", response.data)
 
     def test_existing_database_is_migrated_without_losing_history(self):
         database_path = self.root / "legacy.db"

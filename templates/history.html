@@ -8,7 +8,7 @@
   {% if predictions %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Time (UTC)</th><th>Filename</th><th>Verdict</th><th>Confidence</th><th>AI probability</th><th>Model</th><th></th></tr></thead>
+      <thead><tr><th>Time (UTC)</th><th>Filename</th><th>Verdict</th><th>Confidence</th><th>AI probability</th><th>Threshold</th><th>Model</th><th></th></tr></thead>
       <tbody>
       {% for item in predictions %}
         <tr>
@@ -17,6 +17,7 @@
           <td>{{ item.label }}</td>
           <td>{{ "%.1f"|format(item.confidence * 100) }}%</td>
           <td>{{ "%.1f"|format(item.ai_probability * 100) }}%</td>
+          <td>{% if item.threshold is not none %}{{ "%.4f"|format(item.threshold) }}{% else %}Unknown{% endif %}</td>
           <td>{{ item.model_name or "Unknown (older record)" }}</td>
           <td><a href="{{ url_for('result_page', prediction_id=item.id) }}">View</a></td>
         </tr>

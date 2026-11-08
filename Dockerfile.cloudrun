@@ -1,0 +1,35 @@
+ARG PYTHON_BASE=python:3.11-slim@sha256:65bd3d9f1d7fa268dd1909973ba7eb4bdf41f6dcf2cfbe76ba9528b170f3fd79
+FROM ${PYTHON_BASE}
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HOME=/tmp \
+    TF_CPP_MIN_LOG_LEVEL=2 \
+    MODEL_PATH=/app/models/visionguard_comparison_champion.keras \
+    MODEL_NAME="VisionGuard MobileNetV2 champion" \
+    THRESHOLD=0.8569827079772949
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-cloudrun.txt .
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements-cloudrun.txt
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin visionguard
+
+COPY --chown=visionguard:visionguard cloudrun_api.py cloudrun_wsgi.py inference.py ./
+COPY --chown=visionguard:visionguard visionguard_outputs/visionguard_comparison_champion.keras ./models/visionguard_comparison_champion.keras
+
+USER 10001:10001
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
+
+CMD ["gunicorn", "--bind=0.0.0.0:8080", "--workers=1", "--threads=4", "--timeout=120", "--access-logfile=-", "--error-logfile=-", "cloudrun_wsgi:app"]

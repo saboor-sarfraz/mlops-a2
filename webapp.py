@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sqlite3
 from collections.abc import Iterator
@@ -10,9 +11,10 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
+import requests
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -127,7 +129,8 @@ def _initialize_database(database_url: str, postgres_options: dict | None = None
                 label TEXT NOT NULL,
                 confidence DOUBLE PRECISION NOT NULL,
                 ai_probability DOUBLE PRECISION NOT NULL,
-                model_name TEXT
+                model_name TEXT,
+                threshold DOUBLE PRECISION
             )
             """
         )
@@ -150,6 +153,10 @@ def _initialize_database(database_url: str, postgres_options: dict | None = None
             }
         if "model_name" not in columns:
             connection.execute("ALTER TABLE predictions ADD COLUMN model_name TEXT")
+        if "threshold" not in columns:
+            connection.execute(
+                "ALTER TABLE predictions ADD COLUMN threshold DOUBLE PRECISION"
+            )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_predictions_created_at "
             "ON predictions(created_at DESC)"
@@ -160,7 +167,33 @@ def create_app(test_config: dict | None = None) -> Flask:
     load_dotenv(ROOT / ".env")
     app = Flask(__name__, template_folder="templates", static_folder="static")
     app.request_class = MemoryOnlyRequest
-    model_path, threshold = environment_model_config()
+    remote_model_api_url = os.environ.get("MODEL_API_URL", "").strip().rstrip("/")
+    remote_model_api_key = os.environ.get("MODEL_API_KEY", "").strip()
+    if remote_model_api_url and not remote_model_api_key:
+        raise RuntimeError("MODEL_API_KEY must be configured when MODEL_API_URL is set.")
+    if remote_model_api_url:
+        remote_url = urlparse(remote_model_api_url)
+        if remote_url.scheme != "https" or not remote_url.netloc:
+            raise RuntimeError("MODEL_API_URL must be an HTTPS URL.")
+        model_path = Path(
+            os.environ.get(
+                "MODEL_PATH",
+                "visionguard_outputs/visionguard_comparison_champion.keras",
+            )
+        ).expanduser()
+        if not model_path.is_absolute():
+            model_path = ROOT / model_path
+        threshold_text = os.environ.get(
+            "THRESHOLD", "0.8569827079772949"
+        ).strip()
+        try:
+            threshold = float(threshold_text)
+        except ValueError as error:
+            raise RuntimeError("THRESHOLD must be a number between 0 and 1.") from error
+        if not 0 <= threshold <= 1:
+            raise RuntimeError("THRESHOLD must be between 0 and 1.")
+    else:
+        model_path, threshold = environment_model_config()
     database_url = os.environ.get("DATABASE_URL", "").strip()
     postgres_options = None
     if os.environ.get("DB_HOST"):
@@ -199,6 +232,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         VISIONGUARD_THRESHOLD=threshold,
         VISIONGUARD_DATABASE_URL=database_url,
         VISIONGUARD_POSTGRES_OPTIONS=postgres_options,
+        VISIONGUARD_REMOTE_MODEL_API_URL=remote_model_api_url,
+        VISIONGUARD_REMOTE_MODEL_API_KEY=remote_model_api_key,
         VISIONGUARD_MODEL_NAME=(
             os.environ.get("MODEL_NAME", "").strip() or model_path.stem
         ),
@@ -207,13 +242,13 @@ def create_app(test_config: dict | None = None) -> Flask:
         app.config.update(test_config)
     model_loader = app.config.pop("VISIONGUARD_MODEL_LOADER", load_model)
     model = app.config.pop("VISIONGUARD_MODEL", None)
-    if model is None:
+    if model is None and not app.config["VISIONGUARD_REMOTE_MODEL_API_URL"]:
         model = model_loader(model_path)
     app.extensions["visionguard_model"] = model
     _initialize_database(database_url, postgres_options)
     app.logger.info(
-        "VisionGuard loaded once from %s; threshold=%.6f; database_backend=%s",
-        model_path,
+        "VisionGuard inference backend=%s; threshold=%.6f; database_backend=%s",
+        "cloud_run" if app.config["VISIONGUARD_REMOTE_MODEL_API_URL"] else "local",
         threshold,
         "postgresql" if postgres_options or database_url.startswith(("postgresql://", "postgres://")) else "sqlite",
     )
@@ -256,19 +291,59 @@ def create_app(test_config: dict | None = None) -> Flask:
         image_bytes = uploaded.stream.read(app.config["MAX_CONTENT_LENGTH"] + 1)
         if len(image_bytes) > app.config["MAX_CONTENT_LENGTH"]:
             abort(413)
-        try:
-            result = predict(
-                app.extensions["visionguard_model"],
-                image_bytes,
-                app.config["VISIONGUARD_THRESHOLD"],
-            )
-        except InvalidImageError:
-            return render_template(
-                "error.html",
-                title="Image could not be read",
-                message="This file does not contain a valid supported image. Try another image.",
-                status_code=400,
-            ), 400
+        if app.config["VISIONGUARD_REMOTE_MODEL_API_URL"]:
+            try:
+                response = requests.post(
+                    f"{app.config['VISIONGUARD_REMOTE_MODEL_API_URL']}/api/v1/predict",
+                    headers={
+                        "Authorization": (
+                            f"Bearer {app.config['VISIONGUARD_REMOTE_MODEL_API_KEY']}"
+                        )
+                    },
+                    files={"image": (filename, image_bytes, uploaded.mimetype)},
+                    timeout=(5, 120),
+                )
+                response.raise_for_status()
+                remote_result = response.json()
+                result = {
+                    "label": remote_result["label"],
+                    "confidence": float(remote_result["confidence"]),
+                    "ai_probability": float(remote_result["ai_probability"]),
+                    "model_name": remote_result["model_name"],
+                    "threshold": float(remote_result["threshold"]),
+                }
+                if (
+                    result["label"] not in {"Real", "AI-generated"}
+                    or not math.isfinite(result["confidence"])
+                    or not math.isfinite(result["ai_probability"])
+                    or not math.isfinite(result["threshold"])
+                    or not 0 <= result["confidence"] <= 1
+                    or not 0 <= result["ai_probability"] <= 1
+                    or not 0 <= result["threshold"] <= 1
+                ):
+                    raise ValueError("Remote model returned invalid prediction fields.")
+            except (requests.RequestException, KeyError, TypeError, ValueError):
+                app.logger.exception("Remote model API request failed.")
+                return render_template(
+                    "error.html",
+                    title="Model service unavailable",
+                    message="The remote prediction service could not complete this request.",
+                    status_code=502,
+                ), 502
+        else:
+            try:
+                result = predict(
+                    app.extensions["visionguard_model"],
+                    image_bytes,
+                    app.config["VISIONGUARD_THRESHOLD"],
+                )
+            except InvalidImageError:
+                return render_template(
+                    "error.html",
+                    title="Image could not be read",
+                    message="This file does not contain a valid supported image. Try another image.",
+                    status_code=400,
+                ), 400
 
         prediction_id = uuid4().hex
         created_at = datetime.now(UTC).isoformat(timespec="seconds")
@@ -279,8 +354,9 @@ def create_app(test_config: dict | None = None) -> Flask:
             connection.execute(
                 """
                 INSERT INTO predictions
-                    (id, created_at, filename, label, confidence, ai_probability, model_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, created_at, filename, label, confidence, ai_probability,
+                     model_name, threshold)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     prediction_id,
@@ -289,7 +365,8 @@ def create_app(test_config: dict | None = None) -> Flask:
                     result["label"],
                     result["confidence"],
                     result["ai_probability"],
-                    app.config["VISIONGUARD_MODEL_NAME"],
+                    result.get("model_name", app.config["VISIONGUARD_MODEL_NAME"]),
+                    result.get("threshold", app.config["VISIONGUARD_THRESHOLD"]),
                 ),
             )
         return redirect(url_for("result_page", prediction_id=prediction_id))
@@ -308,7 +385,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         return render_template(
             "result.html",
             result=dict(row),
-            threshold=app.config["VISIONGUARD_THRESHOLD"],
+            threshold=(
+                row["threshold"]
+                if row["threshold"] is not None
+                else app.config["VISIONGUARD_THRESHOLD"]
+            ),
         )
 
     @app.get("/history")
@@ -327,7 +408,8 @@ def create_app(test_config: dict | None = None) -> Flask:
             page = min(page, page_count)
             rows = connection.execute(
                 """
-                SELECT id, created_at, filename, label, confidence, ai_probability, model_name
+                SELECT id, created_at, filename, label, confidence, ai_probability,
+                       model_name, threshold
                 FROM predictions ORDER BY created_at DESC, id DESC
                 LIMIT ? OFFSET ?
                 """,
@@ -352,7 +434,19 @@ def create_app(test_config: dict | None = None) -> Flask:
         except sqlite3.Error:
             app.logger.exception("Health check failed while accessing prediction history.")
             return jsonify(status="unhealthy", model_loaded=True, database="unavailable"), 503
-        return jsonify(status="healthy", model_loaded=True, database="available"), 200
+        return jsonify(
+            status="healthy",
+            model_loaded=(
+                app.extensions["visionguard_model"] is not None
+                or bool(app.config["VISIONGUARD_REMOTE_MODEL_API_URL"])
+            ),
+            model_backend=(
+                "cloud_run"
+                if app.config["VISIONGUARD_REMOTE_MODEL_API_URL"]
+                else "local"
+            ),
+            database="available",
+        ), 200
 
     @app.errorhandler(RequestEntityTooLarge)
     def upload_too_large(_error):
